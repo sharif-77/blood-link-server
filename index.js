@@ -81,6 +81,43 @@ async function run() {
       const result = await usersCollection.findOne(query);
       res.send(result);
     });
+    app.patch("/update-user-status/:id", async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      console.log(data.status);
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          status:data.status
+        },
+      };
+      const query = { _id: new ObjectId(id) };
+      const result = await usersCollection.updateOne(
+        query,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
+    app.patch("/update-user-role/:id", async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      console.log(data.role);
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          role:data.role
+        },
+      };
+      const query = { _id: new ObjectId(id) };
+      const result = await usersCollection.updateOne(
+        query,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
+
 
     //  users Api
     app.get("/all-blood-donation-requests", async (req, res) => {
@@ -100,8 +137,8 @@ async function run() {
       const updateDoc = {
         $set: {
           donationStatus: data.currentStatus,
-          donorName:data.donorName,
-          donorEmail:data.donorEmail
+          donorName: data.donorName,
+          donorEmail: data.donorEmail,
         },
       };
       const query = { _id: new ObjectId(id) };
@@ -113,6 +150,40 @@ async function run() {
       res.send(result);
     });
 
+    app.put('/update-blood-donation-request/:id',async (req,res)=>{
+      const id=req.params.id;
+      const dataForUpdate=req.body;
+      const {requesterName,requesterEmail,recipientName,recipientBloodGroup,recipientDistrict,recipientUpazila,hospitalName,fullAddress,donationDate,donationTime,requestMessage,donationStatus}=dataForUpdate;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          requesterName,requesterEmail,recipientName,recipientBloodGroup,recipientDistrict,recipientUpazila,hospitalName,fullAddress,donationDate,donationTime,requestMessage,donationStatus
+        },
+      };
+      const result = await donationRequestsCollection.updateOne(filter, updateDoc, options);
+      res.send(result)
+    })
+
+    app.delete("/blood-donation-request-delete/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await donationRequestsCollection.deleteOne(query);
+      res.send(result);
+    });
+    app.get(
+      "/blood-donation-individual/:email",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const query = {
+          requesterEmail: email,
+        };
+        const result = await donationRequestsCollection.find(query).toArray();
+        res.send(result);
+      }
+    );
+
     app.get("/user-status/:email", async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
@@ -122,6 +193,31 @@ async function run() {
     app.post("/blood-donation-request", async (req, res) => {
       const data = req.body;
       const result = await donationRequestsCollection.insertOne(data);
+      res.send(result);
+    });
+    app.get("/all-blood-donation-request", async (req, res) => {
+      const email = req.query.email;
+      if (email) {
+        const query = {
+          requesterEmail: email,
+        };
+        const page = parseInt(req.query.page);
+        const limit = parseInt(req.query.limit);
+        const skip = page * limit;
+        const result = await donationRequestsCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        res.send(result);
+      }
+    });
+    app.get("/my-bloodDonationCount/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const query = {
+        requesterEmail: email,
+      };
+      const result = await donationRequestsCollection.find(query).toArray();
       res.send(result);
     });
 
