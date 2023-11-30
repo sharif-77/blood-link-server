@@ -1,5 +1,6 @@
 const express = require("express");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -8,7 +9,7 @@ const port = process.env.PORT || 5000;
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5173","https://bloodlink-c67bc.web.app","https://bloodlink.surge.sh"],
     credentials: true,
   })
 );
@@ -48,6 +49,7 @@ async function run() {
     const featuredCollection = client.db("BloodLink").collection("featured");
     const usersCollection = client.db("BloodLink").collection("users");
     const fundCollection = client.db("BloodLink").collection("fund");
+    const blogsCollection = client.db("BloodLink").collection("Blogs");
     const donationRequestsCollection = client
       .db("BloodLink")
       .collection("donation-requests");
@@ -65,6 +67,32 @@ async function run() {
         .send(token);
     });
 
+    // payment
+app.post("/create-payment-intent", async (req, res) => {
+  try {
+    const { price } = req.body;
+    const amount=parseInt(price*100)
+    console.log(price);
+    // Create a PaymentIntent with the order amount and currency
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount,
+      currency: "usd",
+      payment_method_types: [
+        "card"
+      ],
+     
+    });
+  
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (error) {
+    console.log(error);
+  }
+  
+  
+  });
+
     app.get("/featured", async (req, res) => {
       const data = await featuredCollection.find().toArray();
       res.send(data);
@@ -73,6 +101,13 @@ async function run() {
     app.post("/users", async (req, res) => {
       const data = req.body;
       const result = await usersCollection.insertOne(data);
+      res.send(result);
+    });
+       app.get("/user-profile/:email", async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      const query = { email: email };
+      const result = await usersCollection.findOne(query);
       res.send(result);
     });
     app.get("/user-role/:email", async (req, res) => {
@@ -88,15 +123,11 @@ async function run() {
       const options = { upsert: true };
       const updateDoc = {
         $set: {
-          status:data.status
+          status: data.status,
         },
       };
       const query = { _id: new ObjectId(id) };
-      const result = await usersCollection.updateOne(
-        query,
-        updateDoc,
-        options
-      );
+      const result = await usersCollection.updateOne(query, updateDoc, options);
       res.send(result);
     });
     app.patch("/update-user-role/:id", async (req, res) => {
@@ -106,23 +137,86 @@ async function run() {
       const options = { upsert: true };
       const updateDoc = {
         $set: {
-          role:data.role
+          role: data.role,
         },
       };
       const query = { _id: new ObjectId(id) };
-      const result = await usersCollection.updateOne(
+      const result = await usersCollection.updateOne(query, updateDoc, options);
+      res.send(result);
+    });
+
+    // blog api
+    app.post("/add-blog", async (req, res) => {
+      const data = req.body;
+      const result = await blogsCollection.insertOne(data);
+      res.send(result);
+    });
+    app.get("/all-blogs", async (req, res) => {
+      const data = await blogsCollection.find().toArray();
+      res.send(data);
+    });
+    app.get(
+      "/all-published-blog/:status",
+
+      async (req, res) => {
+        const status = req.params.status;
+        console.log(status);
+        const query = {
+          status: status,
+        };
+        const result = await blogsCollection.find(query).toArray();
+        res.send(result);
+      }
+    );
+
+    app.patch("/update-blog-status/:id", async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          status: data.status,
+      
+        },
+      };
+      const query = { _id: new ObjectId(id) };
+      const result = await blogsCollection.updateOne(
         query,
         updateDoc,
         options
       );
       res.send(result);
     });
-
+    app.delete("/delete-blog/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await blogsCollection.deleteOne(query);
+      res.send(result);
+    });
+    app.get("/search-donor", async (req, res) => {
+      const bloodGroup =req.query.bloodGroup;
+      const district =req.query.district;
+      const upazila =req.query.upazila;
+      console.log(bloodGroup,district,upazila);
+      const query = { bloodGroup,district,upazila };
+      
+      const result = await usersCollection
+        .find(query)
+        .toArray();
+      res.send(result);
+    });
 
     //  users Api
     app.get("/all-blood-donation-requests", async (req, res) => {
-      const data = await donationRequestsCollection.find().toArray();
-      res.send(data);
+      const page = parseInt(req.query.page);
+      const limit = parseInt(req.query.limit);
+      const skip = page * limit;
+      const result = await donationRequestsCollection
+        .find()
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+      res.send(result);
     });
     app.get("/blood-donation-request/:id", async (req, res) => {
       const id = req.params.id;
@@ -150,20 +244,48 @@ async function run() {
       res.send(result);
     });
 
-    app.put('/update-blood-donation-request/:id',async (req,res)=>{
-      const id=req.params.id;
-      const dataForUpdate=req.body;
-      const {requesterName,requesterEmail,recipientName,recipientBloodGroup,recipientDistrict,recipientUpazila,hospitalName,fullAddress,donationDate,donationTime,requestMessage,donationStatus}=dataForUpdate;
+    app.put("/update-blood-donation-request/:id", async (req, res) => {
+      const id = req.params.id;
+      const dataForUpdate = req.body;
+      const {
+        requesterName,
+        requesterEmail,
+        recipientName,
+        recipientBloodGroup,
+        recipientDistrict,
+        recipientUpazila,
+        hospitalName,
+        fullAddress,
+        donationDate,
+        donationTime,
+        requestMessage,
+        donationStatus,
+      } = dataForUpdate;
       const filter = { _id: new ObjectId(id) };
       const options = { upsert: true };
       const updateDoc = {
         $set: {
-          requesterName,requesterEmail,recipientName,recipientBloodGroup,recipientDistrict,recipientUpazila,hospitalName,fullAddress,donationDate,donationTime,requestMessage,donationStatus
+          requesterName,
+          requesterEmail,
+          recipientName,
+          recipientBloodGroup,
+          recipientDistrict,
+          recipientUpazila,
+          hospitalName,
+          fullAddress,
+          donationDate,
+          donationTime,
+          requestMessage,
+          donationStatus,
         },
       };
-      const result = await donationRequestsCollection.updateOne(filter, updateDoc, options);
-      res.send(result)
-    })
+      const result = await donationRequestsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
 
     app.delete("/blood-donation-request-delete/:id", async (req, res) => {
       const id = req.params.id;
